@@ -1,0 +1,11 @@
+[package]
+name = "redis_utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+deadpool = "0.12.1"
+deadpool-redis = { version = "0.15.1", features = ["serde"] }
+dotenv = "0.15.0"
+tokio-retry = "0.3.0"
