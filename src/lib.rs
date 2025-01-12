@@ -16,7 +16,7 @@ pub fn create_redis_pool() -> Result<Pool<Manager, Connection>> {
 
 pub async fn create_redis_connection(pool: &Pool<Manager, Connection>) -> Result<Connection> {
     // Retry every 10 milliseconds, up to 15 times
-    let retry_strategy = FixedInterval::from_millis(10).take(15);
+    let retry_strategy = FixedInterval::from_millis(1).take(15);
 
     Retry::spawn(retry_strategy, || async {
         pool.get().await.context("Failed to get Redis connection")
