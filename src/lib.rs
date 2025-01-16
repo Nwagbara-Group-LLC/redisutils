@@ -3,7 +3,7 @@ use deadpool::managed::Pool;
 use deadpool_redis::{Config, Connection, Manager, Runtime};
 use dotenv::dotenv;
 use std::env;
-use tokio_retry::{strategy::FixedInterval, Retry};
+use tokio_retry::{strategy::{jitter, ExponentialBackoff}, Retry};
 
 pub fn create_redis_pool() -> Result<Pool<Manager, Connection>> {
     dotenv().ok();
@@ -15,8 +15,7 @@ pub fn create_redis_pool() -> Result<Pool<Manager, Connection>> {
 }
 
 pub async fn get_redis_connection(pool: &Pool<Manager, Connection>) -> Result<Connection> {
-    // Retry every 10 milliseconds, up to 15 times
-    let retry_strategy = FixedInterval::from_millis(1).take(15);
+    let retry_strategy = ExponentialBackoff::from_millis(10).map(jitter).take(3);
 
     Retry::spawn(retry_strategy, || async {
         pool.get().await.context("Failed to get Redis connection")
