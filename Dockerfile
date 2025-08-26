@@ -1,109 +1,68 @@
-# Multi-stage build for RedisUtils
-ARG RUST_VERSION=1.75
+# syntax=docker/dockerfile:1
 
-# Build stage
-FROM rust:${RUST_VERSION}-slim-bullseye as builder
+ARG RUST_VERSION=1.82.0
+ARG APP_NAME=redis_utils
 
-WORKDIR /app
+################################################################################
+# Stage 1: Build the application with optimizations
+FROM rust:${RUST_VERSION}-slim-bullseye AS build
+ARG APP_NAME
 
-# Install build dependencies
+# Install necessary build dependencies
 RUN apt-get update && apt-get install -y \
+    build-essential \
     pkg-config \
     libssl-dev \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
-COPY Cargo.toml Cargo.lock ./
+# Set performance-optimized environment variables
+ENV RUSTFLAGS="-C target-cpu=native -C opt-level=3 -C codegen-units=1 -C panic=abort"
+ENV RUST_BACKTRACE=0
 
-# Build dependencies (cache layer)
-RUN mkdir src && echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src/
-
-# Copy source code
-COPY . .
-
-# Build library and utilities
-RUN cargo build --release
-
-# Create library distribution
-RUN mkdir -p /usr/local/lib/redis-utils && \
-    cp target/release/libredisutils.so /usr/local/lib/redis-utils/ 2>/dev/null || true && \
-    cp target/release/libredis_utils.rlib /usr/local/lib/redis-utils/ 2>/dev/null || true && \
-    cp -r src/ /usr/local/lib/redis-utils/src/ && \
-    cp Cargo.toml /usr/local/lib/redis-utils/
-
-# Test utilities stage
-FROM redis:7-alpine as test-runner
-
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy test utilities
-COPY --from=builder /app/target/release/redis-cluster-test /usr/local/bin/redis-cluster-test
-COPY --from=builder /app/target/release/redis-benchmark /usr/local/bin/redis-benchmark
-COPY --from=builder /app/target/release/redis-migration /usr/local/bin/redis-migration
+# Copy the source code into the container
+COPY . /app/redisutils
 
-# Copy test scripts
-COPY --from=builder /app/tests/ /app/tests/
+# Ensure the library builds correctly
+WORKDIR /app/redisutils
 
-# Runtime stage - minimal Alpine for utilities
-FROM alpine:3.18
+RUN cargo test --locked --release && \
+    cargo build --locked --release
 
-WORKDIR /app
+################################################################################
+# Stage 2: Create a smaller runtime image
+FROM debian:bullseye-slim AS runtime
 
 # Install runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
+    libc6 \
+    net-tools \
+    procps \
+    libssl-dev \
     ca-certificates \
-    redis \
-    && adduser -D -s /bin/sh appuser
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy built utilities
-COPY --from=builder /usr/local/lib/redis-utils/ /usr/local/lib/redis-utils/
-COPY --from=builder /app/target/release/redis-cluster-test /usr/local/bin/redis-cluster-test
-COPY --from=builder /app/target/release/redis-benchmark /usr/local/bin/redis-benchmark
-COPY --from=builder /app/target/release/redis-migration /usr/local/bin/redis-migration
-COPY --from=builder /app/target/release/test-redis-integration /usr/local/bin/test-redis-integration
+# Create the health check script
+RUN echo '#!/bin/sh' > /usr/local/bin/health_check.sh \
+&& echo 'if ! redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASSWORD ping | grep -q "PONG"; then exit 1; fi' >> /usr/local/bin/health_check.sh \
+&& chmod +x /usr/local/bin/health_check.sh
 
-# Copy configuration
-COPY --from=builder /app/config/ /etc/redis-utils/config/
+# Create the liveness probe script
+RUN echo '#!/bin/sh' > /usr/local/bin/liveness_check.sh \
+&& echo 'if ! redis-cli -h $REDIS_HOST -p $REDIS_PORT -a $REDIS_PASSWORD ping | grep -q "PONG"; then exit 1; fi' >> /usr/local/bin/liveness_check.sh \
+&& chmod +x /usr/local/bin/liveness_check.sh
 
-# Create integration test script
-RUN cat > /usr/local/bin/test-redis-integration << 'EOF' && \
-    chmod +x /usr/local/bin/test-redis-integration
-#!/bin/sh
-set -e
-echo "Testing Redis integration..."
+# Create a non-privileged user to run the app
+ARG UID=10001
+RUN adduser --disabled-password --gecos "" --home "/nonexistent" --shell "/sbin/nologin" --no-create-home --uid "${UID}" appuser
 
-# Test basic connection
-redis-cli ping || exit 1
+EXPOSE 443
 
-# Test clustering support
-/usr/local/bin/redis-cluster-test || echo "Cluster test skipped (no cluster detected)"
-
-# Test benchmarks
-/usr/local/bin/redis-benchmark --quick
-
-echo "Redis integration tests completed successfully"
-EOF
-
-# Metadata
-LABEL maintainer="Nwagbara-Group-LLC"
-LABEL description="RedisUtils - Shared Redis utilities and connection management"
-LABEL version="1.0.0"
-
-ARG BUILD_DATE
-ARG VCS_REF
-LABEL org.label-schema.build-date=$BUILD_DATE
-LABEL org.label-schema.vcs-ref=$VCS_REF
-LABEL org.label-schema.schema-version="1.0"
-
-# Security: Use non-root user
+# Switch to non-privileged user
 USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD redis-cli ping || exit 1
-
-# Default command - utility mode
-ENTRYPOINT ["/usr/local/bin/test-redis-integration"]
+# For utility library, default to shell
+CMD ["/bin/bash"]
