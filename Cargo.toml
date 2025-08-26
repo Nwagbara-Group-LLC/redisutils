@@ -9,3 +9,7 @@ deadpool = "0.12.1"
 deadpool-redis = { version = "0.15.1", features = ["serde"] }
 dotenv = "0.15.0"
 tokio-retry = "0.3.0"
+# Ultra-low latency logging
+ultra-logger = { path = "../LoggingEngine/ultra-logger" }
+log-aggregator = { path = "../LoggingEngine/log-aggregator" }
+metrics-collector = { path = "../LoggingEngine/metrics-collector" }
