@@ -41,12 +41,12 @@ on:
 
 env:
   AZURE_CONTAINER_REGISTRY: "prodtradingbotregistry"
-  CONTAINER_NAME: "redis-utils"
+  CONTAINER_NAME: "redisutils"
   RESOURCE_GROUP: "prod-aks-trading-bot-rg"
   CLUSTER_NAME: "prod-trading-bot-cluster"
-  CHART_PATH: "./redis-utils-helm"
-  BASE_CHART_OVERRIDE_PATH: "./redis-utils-helm/values.yaml"
-  ENV_CHART_OVERRIDE_PATH: "./redis-utils-helm/values-prod.yaml"
+  CHART_PATH: "./redisutils-helm"
+  BASE_CHART_OVERRIDE_PATH: "./redisutils-helm/values.yaml"
+  ENV_CHART_OVERRIDE_PATH: "./redisutils-helm/values-prod.yaml"
 
 jobs:
   buildImage:
@@ -62,6 +62,18 @@ jobs:
           
       # Checks out the repository this file is in
       - uses: actions/checkout@v4
+
+      - name: Checkout databaseschema
+        uses: actions/checkout@v4
+        with:
+          repository: Nwagbara-Group-LLC/databaseschema
+          path: databaseschema
+
+      - name: Checkout redisutils
+        uses: actions/checkout@v4
+        with:
+          repository: Nwagbara-Group-LLC/redisutils
+          path: redisutils
 
       # Logs in with your Azure credentials
       - name: Azure login
